@@ -74,7 +74,7 @@
   - name: Set a fact to tell if SSL was previously configured and now disabled
     set_fact:
       ssl_changed: True
-    when: console_ssl_stat.stat.exists and {{ use_ssl }} == False
+    when: console_ssl_stat.stat.exists and use_ssl == False
 
   - name: Running oc cluster status
     shell: "{{ oc_cmd }} cluster status | cat"
@@ -91,11 +91,11 @@
 
   - name: Run oc cluster up
     shell: "{{ oc_cmd }} cluster up --routing-suffix={{ openshift_hostname }} --public-hostname={{ openshift_hostname }} --host-pv-dir={{ persistedvol_mount_point }} --version=latest --image=docker.io/ansibleplaybookbundle/origin"
-    when: (oc_cluster_up_first_run and not master_config_stat.stat.exists) or ssl_changed
+    when: (oc_cluster_up_first_run and not master_config_stat.stat.exists) or ssl_changed is defined
 
   - name: Run oc cluster down
     shell: "{{ oc_cmd }} cluster down"
-    when: (oc_cluster_up_first_run and not master_config_stat.stat.exists) or ssl_changed
+    when: (oc_cluster_up_first_run and not master_config_stat.stat.exists) or ssl_changed is defined
 
   - name: Copy credentials into host dir
     copy:
@@ -105,7 +105,7 @@
       owner: root
       group: root
       mode: 0644
-    when: "{{ use_ssl }} == True"
+    when: use_ssl == True
 
   - name: Copy credentials into host dir
     copy:
@@ -115,7 +115,7 @@
       owner: root
       group: root
       mode: 0644
-    when: "{{ use_ssl }} == True"
+    when: use_ssl == True
 
   - name: Copy credentials into host dir
     copy:
@@ -125,7 +125,7 @@
       owner: root
       group: root
       mode: 0644
-    when: "{{ use_ssl }} == True"
+    when: use_ssl == True
 
   - name: Copy credentials into host dir
     copy:
@@ -135,7 +135,7 @@
       owner: root
       group: root
       mode: 0644
-    when: "{{ use_ssl }} == True"
+    when: use_ssl == True
 
   - name: Add extension script to oc config to talk to svc catalog
     template:
@@ -169,42 +169,42 @@
       dest: /var/lib/origin/openshift.local.config/master/master-config.yaml
       insertafter: "namedCertificates: null"
       line: "    - certFile: /var/lib/origin/openshift.local.config/console-fullchain.pem"
-    when: "{{ use_ssl }} == True"
+    when: use_ssl == True
 
   - name: Add SSL cert to namedCertificates
     lineinfile:
       dest: /var/lib/origin/openshift.local.config/master/master-config.yaml
       insertafter: "certFile: /var/lib/origin/openshift.local.config/console-fullchain.pem"
       line: "      keyFile: /var/lib/origin/openshift.local.config/console-privkey.pem"
-    when: "{{ use_ssl }} == True"
+    when: use_ssl == True
 
   - name: Add SSL cert to namedCertificates
     lineinfile:
       dest: /var/lib/origin/openshift.local.config/master/master-config.yaml
       insertafter: "keyFile: /var/lib/origin/openshift.local.config/console-privkey.pem"
       line: "      names:"
-    when: "{{ use_ssl }} == True"
+    when: use_ssl == True
 
   - name: Add SSL cert to namedCertificates
     lineinfile:
       dest: /var/lib/origin/openshift.local.config/master/master-config.yaml
       insertafter: "names:"
       line: "      - \"apiserver-service-catalog.{{ openshift_hostname }}\""
-    when: "{{ use_ssl }} == True"
+    when: use_ssl == True
 
   - name: Add SSL cert to namedCertificates
     lineinfile:
       dest: /var/lib/origin/openshift.local.config/master/master-config.yaml
       insertafter: "names:"
       line: "      - \"{{ openshift_hostname }}\""
-    when: "{{ use_ssl }} == True"
+    when: use_ssl == True
 
   - name: Edit master-config to allow SSL cert
     lineinfile:
       dest: /var/lib/origin/openshift.local.config/master/master-config.yaml
       regexp: "namedCertificates: null"
       line: "  namedCertificates:"
-    when: "{{ use_ssl }} == True"
+    when: use_ssl == True
 
   - name: Add extension script to oc config to talk to svc catalog
     template:

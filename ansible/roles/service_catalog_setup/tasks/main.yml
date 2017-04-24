@@ -27,7 +27,7 @@
     register: project
 
   - name: check if the service-catalog ssl secret exists
-    shell: "{{ oc_cmd }} get secret --no-headers=true | awk '{ print $1 }' | grep -E '^apiserver-ssl( |$)' | cat"
+    shell: "{{ oc_cmd }} get secret -n service-catalog --no-headers=true | awk '{ print $1 }' | grep -E '^apiserver-ssl( |$)' | cat"
     register: secret
 
   - name: Create a new project for the service-catalog
@@ -45,29 +45,29 @@
   - name: Get SSL credentials
     shell: "cat /var/lib/origin/openshift.local.config/apiserver-fullchain.pem"
     register: apiserver_crt_plain
-    when: "{{ use_ssl }} == True"
+    when: use_ssl == True
 
   - name: Get SSL credentials
     shell: "cat /var/lib/origin/openshift.local.config/apiserver-privkey.pem"
     register: apiserver_key_plain
-    when: "{{ use_ssl }} == True"
+    when: use_ssl == True
 
   - name: Get SSL credentials for apiserver
     set_fact:
       apiserver_cert_b64: "{{ apiserver_crt_plain.stdout | b64encode }}"
-    when: "{{ use_ssl }} == True"
+    when: use_ssl == True
 
   - name: Get SSL credentials for apiserver
     set_fact:
       apiserver_key_b64: "{{ apiserver_key_plain.stdout | b64encode }}"
-    when: "{{ use_ssl }} == True"
+    when: use_ssl == True
 
   - name: Creating apiserver-ssl secret
     template:
       src: apiserver-ssl-secret.templ.yaml.j2
       dest: /tmp/apiserver-ssl-secret.yaml
     register: copy_ssl_secret_tmp
-    when: new_svc_cat_project|succeeded and secret.stdout.find( "apiserver-ssl" ) == -1 and {{ use_ssl }} == True
+    when: new_svc_cat_project|succeeded and secret.stdout.find( "apiserver-ssl" ) == -1 and use_ssl == True
 
   - name: Creating service-catalog.templ.yaml
     template:
@@ -78,7 +78,7 @@
 
   - name: Create apiserver ssl secret through OC Template
     shell: "{{ oc_cmd }} create -f /tmp/apiserver-ssl-secret.yaml"
-    when: new_svc_cat_project|succeeded and secret.stdout.find( "apiserver-ssl" ) == -1 and {{ use_ssl }} == True
+    when: new_svc_cat_project|succeeded and secret.stdout.find( "apiserver-ssl" ) == -1 and use_ssl == True
 
   - name: Install Service Catalog through OC Template
     shell: "{{ oc_cmd }} process -f /tmp/service-catalog.templ.yaml | {{ oc_cmd }} create -f -"

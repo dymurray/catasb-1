@@ -10,7 +10,7 @@
       path: certs/{{ openshift_hostname }}-console-cert.pem
     register: certsLocal
     delegate_to: localhost
-    sudo: no
+    become: no
 
   - name: Clone letsencrypt
     git:
