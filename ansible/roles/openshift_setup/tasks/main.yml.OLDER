@@ -1,0 +1,155 @@
+---
+  - name: Download OpenShift Server Build to get oc and oadm "{{ openshift_server_release_url }}"
+    get_url:
+      url: "{{ openshift_server_release_url }}"
+      dest: /tmp/{{ openshift_server_release_file }}
+      mode: 0440
+    register: get_openshift_release
+
+  - name: Untar {{ openshift_server_release_file }}
+    shell: tar -xzf /tmp/{{ openshift_server_release_file }} -C /tmp
+    when: get_openshift_release.changed
+    register: untar_openshift_release
+
+  - name: Install oc
+    copy:
+      remote_src: True
+      src: /tmp/{{ openshift_server_release_ver }}/oc
+      dest: /usr/local/bin/oc
+      owner: root
+      group: root
+      mode: 0755
+
+  - name: Install oadm
+    copy:
+      remote_src: True
+      src: /tmp/{{ openshift_server_release_ver }}/oadm
+      dest: /usr/local/bin/oadm
+      owner: root
+      group: root
+      mode: 0755
+
+  - name: Download Kubernetes client tools to get latest kubectl, "{{ kubernetes_client_url }}"
+    get_url:
+      url: "{{ kubernetes_client_url }}"
+      dest: /tmp/{{ kubernetes_client_file }}
+      mode: 0440
+    register: get_kubernetes_client_release
+
+  - name: Untar {{ kubernetes_client_file }}
+    shell: tar -xzf /tmp/{{ kubernetes_client_file }} -C /tmp
+    when: get_kubernetes_client_release.changed
+
+  - name: Install kubectl
+    copy:
+      remote_src: True
+      src:  /tmp/kubernetes/client/bin/kubectl
+      dest: /usr/local/bin/kubectl
+      owner: root
+      group: root
+      mode: 0755
+
+  - name: Wait, up to 20 minutes, till we can SSH into the host with the DNS name '{{ openshift_hostname }}'
+    wait_for:
+      host: "{{ openshift_hostname }}"
+      port: 22
+      delay: 0
+      timeout: 1200
+      state: started
+
+  - name: Resetting cluster, {{ reset_cluster }}
+    shell: "{{ oc_cmd }} cluster down"
+    when: reset_cluster
+
+  # When reset_cluster is True we do not want to have to wait for the extra oc cluster up/down if it's not required
+  # so we are checking to see if the master-config.yaml exists, if it's there we will skip the extra oc cluster up/down
+  - stat:
+      path: /var/lib/origin/openshift.local.config/master/master-config.yaml
+    register: master_config_stat
+
+  - name: Running oc cluster status
+    shell: "{{ oc_cmd }} cluster status | cat"
+    register: oc_cluster_status
+
+  - name: Set a fact to track the first run of oc cluster up
+    set_fact:
+      oc_cluster_up_first_run: False
+
+  - name: This is the first run so set to True
+    set_fact:
+      oc_cluster_up_first_run: True
+    when: "not 'cluster was started' in oc_cluster_status.stdout"
+
+  # Intent of this oc cluster up is generate the master-config.yaml so we can make edits to it
+  - name: Run oc cluster up
+    shell: "{{ oc_cmd }} cluster up --routing-suffix={{ openshift_hostname }} --public-hostname={{ openshift_hostname }} --host-pv-dir={{ persistedvol_mount_point }} --version=latest --image=docker.io/ansibleplaybookbundle/origin"
+    when: oc_cluster_up_first_run and not master_config_stat.stat.exists
+
+  - name: Run oc cluster down
+    shell: "{{ oc_cmd }} cluster down"
+    when: oc_cluster_up_first_run and not master_config_stat.stat.exists
+
+  - name: Add extension script to oc config to talk to svc catalog
+    template:
+      src: extension.j2
+      dest: /var/lib/origin/openshift.local.config/extension.js
+      owner: root
+      group: root
+      mode: 0644
+    register: extension_script_result
+
+  - name: Edit master-config to allow extension scripts
+    lineinfile:
+      dest: /var/lib/origin/openshift.local.config/master/master-config.yaml
+      regexp: "extensionDevelopment:"
+      line: "  extensionDevelopment: true"
+
+  - name: Add extension script to assetConfig
+    lineinfile:
+      dest: /var/lib/origin/openshift.local.config/master/master-config.yaml
+      insertafter: "extensionScripts: null"
+      line: "    - /var/lib/origin/openshift.local.config/extension.js"
+
+  - name: Edit master-config to add extension script
+    lineinfile:
+      dest: /var/lib/origin/openshift.local.config/master/master-config.yaml
+      regexp: "extensionScripts: null"
+      line: "  extensionScripts:"
+
+  - name: Run oc cluster up
+    shell: "{{ oc_cmd }} cluster up --routing-suffix={{ openshift_hostname }} --public-hostname={{ openshift_hostname }} --host-pv-dir={{ persistedvol_mount_point }} --version=latest --image=docker.io/ansibleplaybookbundle/origin --host-config-dir=/var/lib/origin/openshift.local.config --use-existing-config"
+    when: oc_cluster_up_first_run
+    register: oc_cluster_up
+
+  #
+  # Add permissions to desired openshift user
+  # Would be nice if we looked at existing users and permissions and made decisions of what to run
+  # for now, will only run these if we've run oc cluster up
+  #
+  - name: Login as {{ cluster_system_admin }}
+    shell: "{{ oc_cmd }} login -u {{ cluster_system_admin }}"
+    when: oc_cluster_up.changed
+
+  - name: Create user {{ cluster_user }}
+    shell: "{{ oc_cmd }} create user {{ cluster_user }}"
+    when: oc_cluster_up.changed
+
+  - name: Add cluster-admin role to {{ cluster_user }}
+    shell: "{{ oadm_cmd }} policy add-cluster-role-to-user cluster-admin {{ cluster_user }}"
+    when: oc_cluster_up.changed
+
+  - name: Add cluster-admin role to {{ service_catalog_user }}
+    shell: "{{ oadm_cmd }} policy add-cluster-role-to-user cluster-admin {{ service_catalog_user }}"
+    when: oc_cluster_up.changed
+
+  - name: Add privileged scc to {{ cluster_user }}
+    shell: "{{ oadm_cmd }} policy add-scc-to-user privileged {{ cluster_user }}"
+    when: oc_cluster_up.changed
+
+  - name: Add anyuid scc to system:authenticated
+    shell: "{{ oadm_cmd }} policy add-scc-to-group anyuid system:authenticated"
+    when: oc_cluster_up.changed
+
+  - name: Login as {{ cluster_user }}
+    shell: "{{ oc_cmd }} login -u {{ cluster_user }} -p {{ cluster_user_password }}"
+    when: oc_cluster_up.changed

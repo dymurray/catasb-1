@@ -1,0 +1,8 @@
+AWS_SSH_KEY_NAME="${AWS_SSH_KEY_NAME:-splice}"
+export AWS_SSH_KEY_NAME
+
+export CLUSTER_IP="172.31.1.92"
+
+export OPENSHIFT_HOSTNAME="${CLUSTER_IP}.nip.io"
+
+export EXTRA_VARS="{\"ec2_install\":False, \"openshift_hostname\":\"${OPENSHIFT_HOSTNAME}\"}"
